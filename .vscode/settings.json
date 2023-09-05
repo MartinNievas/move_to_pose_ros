@@ -1,16 +1,11 @@
 {
     "python.autoComplete.extraPaths": [
-        "/home/martin/ros2_ws/install/mapping/local/lib/python3.10/dist-packages",
-        "/home/martin/ros2_ws/build/frenet_planner",
-        "/home/martin/ros2_ws/install/frenet_planner/lib/python3.10/site-packages",
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
     ],
     "python.analysis.extraPaths": [
-        "/home/martin/ros2_ws/install/mapping/local/lib/python3.10/dist-packages",
-        "/home/martin/ros2_ws/build/frenet_planner",
-        "/home/martin/ros2_ws/install/frenet_planner/lib/python3.10/site-packages",
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
-    ]
+    ],
+    "ros.distro": "humble"
 }

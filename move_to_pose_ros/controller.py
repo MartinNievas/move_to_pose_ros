@@ -22,6 +22,7 @@ from visualization_msgs.msg import MarkerArray
 class ControllerNode(Node):
     def __init__(self):
         super().__init__('controller_node')
+        self.get_logger().info('Controller Initiated')
         self.odom_subscriber_ = self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
 
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -59,7 +60,6 @@ class ControllerNode(Node):
         self.theta_goal = 0.0
 
     def odom_callback(self, msg):
-        self.get_logger().info('Odom callback...')
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
         q0 = msg.pose.pose.orientation.w
@@ -102,10 +102,8 @@ class ControllerNode(Node):
             cmd_vel.linear.x = v
             cmd_vel.angular.z = w
             self.publisher_.publish(cmd_vel)
-            self.get_logger().info('Moving to goal...')
             self.on_target = False
         else:
-            self.get_logger().info('On Goal!')
             cmd_vel = Twist()
             cmd_vel.linear.x = 0.0
             cmd_vel.angular.z = 0.0
@@ -123,34 +121,30 @@ class ControllerNode(Node):
     def handle_accepted_callback(self, goal_handle):
         self.get_logger().info('Deferring execution...')
         self._goal_handle = goal_handle
-        self._timer = self.create_timer(0.5, self.timer_callback)
-    
-    def timer_callback(self):
-        # Execute the defered goal
-        self.get_logger().info('Timer Callback...')
-        if self._goal_handle is not None:
-            if self.on_target == False:
-                self.provide_feedback(self._goal_handle)
-            else:
-                self._goal_handle.execute()
-                self._timer.cancel()
-
-    def provide_feedback(self, goal_handle):
-        self.get_logger().info('Spin callback...')
-        feedback_msg = MoveToPose.Feedback()
-        feedback_msg.distance_to_goal = self.distance_to_goal
-        goal_handle.publish_feedback(feedback_msg)
-
-    def execute_callback(self, goal_handle):
-        self.get_logger().info('Executing goal...')
-
         # Inicio un nuevo goal
         self.x_goal = goal_handle.request.goal_pose.position.x
         self.y_goal = goal_handle.request.goal_pose.position.y
         self.on_target = False
         self.initial_pose = False
-        self.timer = None
+        self.get_logger().info('Moving to goal...')
+        self._timer = self.create_timer(0.5, self.timer_callback)
+    
+    def timer_callback(self):
+        # Execute the defered goal
+        if self._goal_handle is not None:
+            if self.on_target == False:
+                self.provide_feedback(self._goal_handle)
+            else:
+                self._timer.cancel()
+                self._goal_handle.execute()
 
+    def provide_feedback(self, goal_handle):
+        self.get_logger().info('Executing goal...')
+        feedback_msg = MoveToPose.Feedback()
+        feedback_msg.distance_to_goal = self.distance_to_goal
+        goal_handle.publish_feedback(feedback_msg)
+
+    def execute_callback(self, goal_handle):
 
         self.get_logger().info('Goal reached!')
         goal_handle.succeed()
