@@ -26,8 +26,6 @@ class ControllerNode(Node):
         self.odom_subscriber_ = self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
 
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
-        self.global_path_publisher_= self.create_publisher(MarkerArray, 'global_path', 10)
-        self.local_path_publisher_ = self.create_publisher(MarkerArray, 'local_path', 10)
 
         self.action_server_ = ActionServer(
             self,
