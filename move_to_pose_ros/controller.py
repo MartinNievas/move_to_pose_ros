@@ -38,6 +38,9 @@ class ControllerNode(Node):
             handle_accepted_callback=self.handle_accepted_callback,
             cancel_callback=self.cancel_callback)
 
+        self.declare_parameter('max_linear_speed', 1.0)
+        self.declare_parameter('max_angular_speed', 1.0)
+
         self.initial_pose = False
         self.prev_time = self.get_clock().now().to_msg()
         self.curren_pose_x = 0.0
@@ -50,8 +53,9 @@ class ControllerNode(Node):
         self.dt = 0.01
 
         # Robot specifications
-        self.MAX_LINEAR_SPEED = 1.5
-        self.MAX_ANGULAR_SPEED = 1.0
+        self.MAX_LINEAR_SPEED = self.get_parameter('max_linear_speed').get_parameter_value().double_value
+        self.MAX_ANGULAR_SPEED = self.get_parameter('max_angular_speed').get_parameter_value().double_value
+        self.get_logger().info('Robot velocity linear: %f, angular: %f' % (self.MAX_LINEAR_SPEED, self.MAX_ANGULAR_SPEED))
         self.x_start = 0.0
         self.y_start = 0.0
         self.theta_start = 0.0
@@ -60,6 +64,8 @@ class ControllerNode(Node):
         self.theta_goal = 0.0
 
     def odom_callback(self, msg):
+        self.MAX_LINEAR_SPEED = self.get_parameter('max_linear_speed').get_parameter_value().double_value
+        self.MAX_ANGULAR_SPEED = self.get_parameter('max_angular_speed').get_parameter_value().double_value
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
         q0 = msg.pose.pose.orientation.w
