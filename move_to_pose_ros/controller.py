@@ -6,26 +6,43 @@
 
 import rclpy
 from rclpy.node import Node
+from rclpy.action import ActionServer, CancelResponse,GoalResponse
+from rclpy.executors import MultiThreadedExecutor
 import numpy as np
 
 from move_to_pose_ros.path_finder_controller import PathFinderController
+from move_to_pose_ros.visualization_helper import generate_markerarray_message
+from action_move_to_pose_interface.action import MoveToPose
 
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import Point
 from nav_msgs.msg import Odometry
-from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 
 class ControllerNode(Node):
     def __init__(self):
         super().__init__('controller_node')
-        self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
         self.odom_subscriber_ = self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
+
+        self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
         self.global_path_publisher_= self.create_publisher(MarkerArray, 'global_path', 10)
         self.local_path_publisher_ = self.create_publisher(MarkerArray, 'local_path', 10)
 
+        self.action_server_ = ActionServer(
+            self,
+            MoveToPose,
+            'MoveToPose',
+            execute_callback=self.execute_callback,
+            goal_callback=self.goal_callback,
+            handle_accepted_callback=self.handle_accepted_callback,
+            cancel_callback=self.cancel_callback)
+
         self.initial_pose = False
         self.prev_time = self.get_clock().now().to_msg()
+        self.curren_pose_x = 0.0
+        self.curren_pose_y = 0.0
+        self.distance_to_goal = 0.0
+        self.on_target = False
 
         # simulation parameters
         self.controller = PathFinderController(9, 15, 3)
@@ -33,15 +50,16 @@ class ControllerNode(Node):
 
         # Robot specifications
         self.MAX_LINEAR_SPEED = 1.5
-        self.MAX_ANGULAR_SPEED = 0.5
+        self.MAX_ANGULAR_SPEED = 1.0
         self.x_start = 0.0
         self.y_start = 0.0
         self.theta_start = 0.0
-        self.x_goal = 2.0
-        self.y_goal = 5.0
+        self.x_goal = 0.0
+        self.y_goal = 0.0
         self.theta_goal = 0.0
 
     def odom_callback(self, msg):
+        self.get_logger().info('Odom callback...')
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
         q0 = msg.pose.pose.orientation.w
@@ -49,6 +67,9 @@ class ControllerNode(Node):
         q2 = msg.pose.pose.orientation.y
         q3 = msg.pose.pose.orientation.z
         theta = np.arctan2(2*(q0*q3 + q1*q2), 1 - 2*(q2**2 + q3**2))
+
+        self.curren_pose_x = x
+        self.curren_pose_y = y
 
         if self.initial_pose == False:
             self.x_start = x
@@ -62,9 +83,8 @@ class ControllerNode(Node):
         dt = msg.header.stamp.sec - self.prev_time.sec
 
         rho = np.hypot(x_diff, y_diff)
-        self.get_logger().info('rho: "%s"' % rho)
-        self.get_logger().info('x: "%s"' % x)
-        self.get_logger().info('y: "%s"' % y)
+        self.distance_to_goal = rho
+
         if rho > 1.0:
             x_diff = self.x_goal - x
             y_diff = self.y_goal - y
@@ -82,60 +102,61 @@ class ControllerNode(Node):
             cmd_vel.linear.x = v
             cmd_vel.angular.z = w
             self.publisher_.publish(cmd_vel)
-            self.get_logger().info('Publishing: "%s"' % cmd_vel)
+            self.get_logger().info('Moving to goal...')
+            self.on_target = False
         else:
+            self.get_logger().info('On Goal!')
             cmd_vel = Twist()
             cmd_vel.linear.x = 0.0
             cmd_vel.angular.z = 0.0
             self.publisher_.publish(cmd_vel)
+            self.on_target = True
 
-    def generate_markerarray_message(self, path_x, path_y, type="global"):
-        marker_array = MarkerArray()
-        self.get_logger().info('marker size: "%s"' % len(path_x))
-        for i in range(len(path_x[:-1])):
-            marker = Marker()
-            marker.header.frame_id = "odom"
-            marker.header.stamp = self.get_clock().now().to_msg()
-            marker.id = i
-            marker.type = marker.LINE_STRIP
-            marker.action = marker.ADD
-            marker.pose.position.x = path_x[i]
-            marker.pose.position.y = path_y[i]
-            marker.pose.position.z = 0.0
-            marker.pose.orientation.x = 0.0
-            marker.pose.orientation.y = 0.0
-            marker.pose.orientation.z = 0.0
-            marker.pose.orientation.w = 1.0
-            if type == "local":
-                marker.scale.x = 0.03
-                marker.color.r = 1.0
-                marker.color.g = 0.0
-                marker.color.b = 0.0
-            elif type == "global":
-                marker.scale.x = 0.01
-                marker.color.r = 0.0
-                marker.color.g = 1.0
-                marker.color.b = 0.0
-            marker.color.a = 1.0
+    def goal_callback(self, goal_handle):
+        self.get_logger().info('Received goal request')
+        return GoalResponse.ACCEPT
 
-            # marker line points
-            marker.points = []
+    def cancel_callback(self, goal_handle):
+        self.get_logger().info('Received cancel request')
+        return CancelResponse.ACCEPT
 
-            # first point
-            first_line_point = Point()
-            first_line_point.x = path_x[i]
-            first_line_point.y = path_y[i]
-            first_line_point.z = 0.0
-            marker.points.append(first_line_point)
-            # second point
-            second_line_point = Point()
-            second_line_point.x = path_x[i+1]
-            second_line_point.y = path_y[i+1]
-            second_line_point.z = 0.0
-            marker.points.append(second_line_point)
+    def handle_accepted_callback(self, goal_handle):
+        self.get_logger().info('Deferring execution...')
+        self._goal_handle = goal_handle
+        self._timer = self.create_timer(0.5, self.timer_callback)
+    
+    def timer_callback(self):
+        # Execute the defered goal
+        self.get_logger().info('Timer Callback...')
+        if self._goal_handle is not None:
+            if self.on_target == False:
+                self.provide_feedback(self._goal_handle)
+            else:
+                self._goal_handle.execute()
+                self._timer.cancel()
 
-            marker_array.markers.append(marker)
-        return marker_array
+    def provide_feedback(self, goal_handle):
+        self.get_logger().info('Spin callback...')
+        feedback_msg = MoveToPose.Feedback()
+        feedback_msg.distance_to_goal = self.distance_to_goal
+        goal_handle.publish_feedback(feedback_msg)
+
+    def execute_callback(self, goal_handle):
+        self.get_logger().info('Executing goal...')
+
+        # Inicio un nuevo goal
+        self.x_goal = goal_handle.request.goal_pose.position.x
+        self.y_goal = goal_handle.request.goal_pose.position.y
+        self.on_target = False
+        self.initial_pose = False
+        self.timer = None
+
+
+        self.get_logger().info('Goal reached!')
+        goal_handle.succeed()
+        result = MoveToPose.Result()
+        result.final_distance = self.distance_to_goal
+        return result
 
 
 def main(args=None):
@@ -143,7 +164,10 @@ def main(args=None):
 
     controller_node = ControllerNode()
 
-    rclpy.spin(controller_node)
+    # Use a MultiThreadedExecutor to enable processing goals concurrently
+    executor = MultiThreadedExecutor()
+
+    rclpy.spin(controller_node, executor=executor)
 
     controller_node.destroy_node()
     rclpy.shutdown()
